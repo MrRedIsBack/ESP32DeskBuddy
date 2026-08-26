@@ -1,14 +1,12 @@
-// Standard Libraries
-
 // For the I2C LCD screen
 #include <Wire.h> 
 #include <LiquidCrystal_I2C.h>
 
-// For the new SPI TFT Screen
+// For the SPI TFT Screen
 #include <SPI.h>
 #include <TFT_eSPI.h> 
 
-// For Spotify and System
+// For Spotify
 #include <Arduino.h>
 #include <WiFi.h>
 #include "SpotifyEsp32.h"
@@ -49,8 +47,8 @@ void setup() {
   tft.setCursor(10, 10);
   tft.println("Loading...");
 
-  // 2. Initialize the I2C LCD on the new pins
-  Wire.begin(I2C_SDA, I2C_SCL); // THIS IS THE MAGIC LINE!
+  // 2. Initialize the I2C LCD
+  Wire.begin(I2C_SDA, I2C_SCL);
   lcd.init();
   lcd.backlight(); 
   lcd.setCursor(0, 0);
@@ -72,19 +70,18 @@ void setup() {
   delay(1000);
 
   // 4. Configure the JPEG Decoder for the TFT screen
-  TJpgDec.setJpgScale(2); // Scales a 300x300 image down to 150x150
-  TJpgDec.setSwapBytes(true); // Required so the colors don't look inverted on TFT_eSPI
+  TJpgDec.setJpgScale(2); // Scales a 300x300 image down to 150x150, 1, 2, 4 or 8 are the only valid values
+  TJpgDec.setSwapBytes(true);
   TJpgDec.setCallback(bitmap_callback);
 
   sp.begin();
 }
 
-// Add this variable right above your loop()
 unsigned long lastSpotifyCheck = 0;
-const unsigned long spotifyInterval = 5000; // 5 seconds (5000 milliseconds)
+const unsigned long spotifyInterval = 5000; // Every how often should we check Spotify
 
 void loop() {
-  // 1. READ JOYSTICK (Runs super fast, 10 times a second)
+  // 1. READ JOYSTICK
   analogRead(xAxisPin); 
   delay(5); 
   int xValue = analogRead(xAxisPin);
@@ -101,8 +98,7 @@ void loop() {
 
     static String lastArtist;
     static String lastTrackname;
-      
-    // Now we are safely polling Spotify without spamming them!
+    
     String currentArtist = sp.current_artist_names();
     String currentTrackname = sp.current_track_name();
     String currentImage = sp.get_current_album_image_url(1); 
@@ -129,16 +125,15 @@ void loop() {
       // Update TFT Track Info
       tft.fillRect(0, 200, 240, 40, TFT_BLACK); 
       tft.setTextSize(1);
-      tft.setCursor(45, 205);
+      tft.setCursor(10, 205);
       tft.setTextColor(TFT_GREEN, TFT_BLACK);
       tft.println(lastTrackname);
-      tft.setCursor(45, 220);
+      tft.setCursor(10, 220);
       tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
       tft.println(lastArtist);
     }
   }
 
-  // A tiny delay just to keep the loop stable
   delay(50);
 }
 
@@ -164,13 +159,12 @@ void connectWifi() {
   }
 }
 
-// THIS IS ALL IT TAKES NOW! The decoder handles all the math.
 bool bitmap_callback(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap) {
-  // Push the decoded block of pixels directly to the TFT screen
   tft.pushImage(x, y, w, h, bitmap);
   return true; 
 }
 
+// Magic function that I do not understand yet
 void fetchAndDisplayAlbumArt(String url) {
   WiFiClientSecure client;
   client.setInsecure(); 

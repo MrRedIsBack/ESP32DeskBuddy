@@ -13,7 +13,7 @@
 #include <TJpg_Decoder.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
-#define DISABLE_SIMPLIFIED
+#define DISABLE_SIMPLIFIED // This is needed for downloading album photos
 
 // For Trading212
 #include <ArduinoJson.h>
@@ -21,10 +21,12 @@
 // For Nissan GTR R35
 #include "nissan.h"
 
+// Includes our secrets
 #include "secrets.h"
 
 // User Config
 const int trading_goal = 6000;
+const unsigned long spotify_interval = 5000; 
 
 // Pins for the joystick module
 constexpr int xAxisPin = 34;
@@ -44,17 +46,14 @@ TFT_eSPI tft = TFT_eSPI();
 // Create an instance of the Spotify class
 Spotify sp(CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN);
 
-// --- STATE TRACKING VARIABLES ---
 // All the different modes that we can loop through
 unsigned int current_mode = 1; 
-unsigned int previous_mode = 0; // Added to track when the mode actually changes
+unsigned int previous_mode = 0;
 bool locked_mode = false; 
 unsigned int number_of_modes = 4; 
 
 unsigned long lastSpotifyCheck = 0;
-const unsigned long spotifyInterval = 5000; 
 
-// Moved these globally so we can reset them when switching menus
 String lastArtist = "";
 String lastTrackname = "";
 
@@ -68,11 +67,12 @@ void setup() {
   connectWifi();
 
   // 2. Initialize Spotify
-  //sp.set_log_level(SPOTIFY_LOG_VERBOSE);
+  //sp.set_log_level(SPOTIFY_LOG_VERBOSE); // Uncomment this when debugging Spotify errors
   sp.begin();
 
-  // 3. NOW Initialize the new TFT Screen
+  // 3. Initialize the new TFT Screen
   tft.init();
+  tft.setSwapBytes(true);
   tft.setRotation(0);
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -92,7 +92,6 @@ void setup() {
 
   // 5. Configure the JPEG Decoder for the TFT screen
   TJpgDec.setJpgScale(2); // Scales a 300x300 image down to 150x150
-  TJpgDec.setSwapBytes(true);
   TJpgDec.setCallback(bitmap_callback);
 }
 
@@ -119,10 +118,11 @@ void loop() {
   // Joystick Navigation
   if (xValue < 100 && locked_mode == false){
     if (current_mode == 1) {
-      current_mode = number_of_modes; 
+      current_mode = number_of_modes;
     } else {
       current_mode--;
     }
+    delay(500);
   }
   else if (xValue > 2400 && locked_mode == false){
     if (current_mode == number_of_modes) {
@@ -130,9 +130,9 @@ void loop() {
     } else {
       current_mode++;
     }
+    delay(500);
   }
 
-  // --- MODE 1: SPOTIFY ---
   if (current_mode == 1) {
     display_spotify();
   }
@@ -145,27 +145,24 @@ void loop() {
 
   else if (current_mode == 3) {
     if (current_mode != previous_mode) {
+      lcd_display("Loading", "Trading212");
       display_trading();
     }
   }
 
   else if (current_mode == 4) {
     if (current_mode != previous_mode) {
-      lcd.clear();
-      tft.setSwapBytes(true);
+      lcd_display("Sexy Car", "");
+      //tft.setSwapBytes(true);
       tft.pushImage(0, 0, nissan_width, nissan_height, nissan);
     }
   }
 
-  // Update previous_mode at the very end of the loop
   previous_mode = current_mode;
-  
-  delay(500);
 }
 
 
 // Helper Functions
-
 void connectWifi() {
   int attempts = 0;
   const int max_attempts = 20; 
@@ -243,7 +240,6 @@ void lcd_display(const String line1, const String line2) {
 }
 
 void show_percentage(const String title, const int percentage_value) {
-  // --- 1. TFT SCREEN UI ---
   tft.fillScreen(TFT_BLACK);
   
   // Draw Title at the top center
@@ -287,16 +283,24 @@ void show_percentage(const String title, const int percentage_value) {
   tft.setTextDatum(TL_DATUM); 
 }
 
-// Modes
+void tft_print(const String text) {
+  tft.setRotation(0);
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextSize(2);
+  tft.setCursor(10, 10);
+  tft.println(text);
+}
 
+// Modes
 void display_spotify() {
   // If we JUST switched to Mode 1 from another mode
     if (current_mode != previous_mode) {
       lastTrackname = ""; // Force the screen to redraw the current song
-      lastSpotifyCheck = millis() - spotifyInterval; // Force an immediate API check
+      lastSpotifyCheck = millis() - spotify_interval; // Force an immediate API check
     }
 
-    if (millis() - lastSpotifyCheck >= spotifyInterval) {
+    if (millis() - lastSpotifyCheck >= spotify_interval) {
       lastSpotifyCheck = millis(); // Reset the timer
       
       String currentArtist = sp.current_artist_names();
@@ -316,7 +320,7 @@ void display_spotify() {
         lastArtist = currentArtist;
         
         // Update LCD
-        lcd_display(lastArtist, lastTrackname);
+        lcd_display(lastTrackname, lastArtist);
         
         // Update TFT Track Info
         tft.fillRect(0, 200, 240, 40, TFT_BLACK); 
@@ -342,20 +346,6 @@ void display_storage() {
   lcd_display("Free Ram:", String(free_RAM/1000) + "KB");
 
   show_percentage("RAM IN USE", used_Percentage);
-
-  // --- 2. SERIAL MONITOR ---
-  Serial.println("--- ESP32 RAM Usage ---");
-  Serial.print("Total RAM: ");
-  Serial.print(total_RAM / 1000);
-  Serial.println("K bytes");
-
-  Serial.print("Used RAM:  ");
-  Serial.print(used_RAM / 1000);
-  Serial.println("K bytes");
-
-  Serial.print("Free RAM:  ");
-  Serial.print(free_RAM / 1000);
-  Serial.println("K bytes");
 }
 
 void display_trading() {
@@ -382,15 +372,19 @@ void display_trading() {
 
     if (httpResponseCode == 401) {
       Serial.println("Bad API key.");
+      tft_print("Bad API key");
     }
     else if (httpResponseCode == 403) {
-      Serial.println("Scope( account ) missing for API key");
+      Serial.println("Scope(account) missing for API key");
+      tft_print("Scope(account) missing for API key");
     }
     else if (httpResponseCode == 408) {
       Serial.println("Timed-out");
+      tft_print("Timed-out");
     }
     else if (httpResponseCode == 429) {
       Serial.println("Limited: 1 / 5s");
+      tft_print("Limited: 1 / 5s");
     }
     else if (httpResponseCode == 200) {
       // SUCCESS! Get the raw JSON string
@@ -403,6 +397,7 @@ void display_trading() {
       if (error) {
         Serial.print("JSON Parsing failed: ");
         Serial.println(error.f_str());
+        tft_print("JSON Parsing failed");
       } else {
         // Extract the specific values you wanted
         float totalValue = doc["totalValue"];
@@ -417,11 +412,13 @@ void display_trading() {
       }
     } else {
       Serial.println("Unexpected HTTP Status Code.");
+      tft_print("Unexpected HTTP Status Code");
     }
   } else {
     Serial.print("Error on HTTP request: ");
     Serial.println(httpResponseCode);
     Serial.println(http.errorToString(httpResponseCode));
+    tft_print("Error on HTTP request");
   }
 
   // 6. Clean up resources
